@@ -89,12 +89,6 @@ Uygulama kaldirma islemlerinde temkinli davranir:
 - Sistem uygulamalarini ve yardimci uygulamalari yanlislikla kaldirmayi engeller.
 - Bulunan kalinti dosyalarini kullaniciya gosterir ve secim hakki verir.
 
-## GitHub'da Paylasma
-
-Projeyi GitHub'da yayinlamak icin ayrintili adimlar:
-
-[GITHUB_YAYINLAMA_REHBERI.md](GITHUB_YAYINLAMA_REHBERI.md)
-
 ## Dil Destegi
 
 Uygulamaya yeni dil ekleme ve mevcut cevirileri yonetme rehberi:
