@@ -89,12 +89,6 @@ Uygulama kaldirma islemlerinde temkinli davranir:
 - Sistem uygulamalarini ve yardimci uygulamalari yanlislikla kaldirmayi engeller.
 - Bulunan kalinti dosyalarini kullaniciya gosterir ve secim hakki verir.
 
-## Dil Destegi
-
-Uygulamaya yeni dil ekleme ve mevcut cevirileri yonetme rehberi:
-
-[DIL_DESTEGI_README.md](DIL_DESTEGI_README.md)
-
 ## Lisans
 
 Bu proje MIT lisansi ile yayinlanmistir. Ayrinti icin [LICENSE](LICENSE) dosyasina bakin.
