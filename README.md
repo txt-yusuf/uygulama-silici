@@ -19,17 +19,7 @@ Uygulama Silici, macOS icin gelistirilmis sade ve kullanimi kolay bir uygulama k
 
 ## Ekran Goruntuleri
 
-Ekran goruntulerini `docs/screenshots` klasorune ekledikten sonra GitHub bu bolumde otomatik olarak gosterir.
-
-```markdown
 ![Uygulama Silici ana ekran](docs/screenshots/main-window.png)
-```
-
-Ornek dosya yolu:
-
-```text
-docs/screenshots/main-window.png
-```
 
 ## Taranan Konumlar
 
