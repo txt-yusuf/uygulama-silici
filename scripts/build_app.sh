@@ -7,10 +7,10 @@ EXECUTABLE_NAME="UygulamaSilici"
 CONFIGURATION="${1:-debug}"
 
 cd "$ROOT_DIR"
-swift build -c "$CONFIGURATION"
+swift build -c "$CONFIGURATION" >&2
 "$ROOT_DIR/scripts/build_icon.sh" >/dev/null
 
-BUILD_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
+BUILD_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path 2>/dev/null)"
 APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"

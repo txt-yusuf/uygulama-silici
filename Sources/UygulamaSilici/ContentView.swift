@@ -50,6 +50,7 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.language = selectedLanguage
+            viewModel.loadHistory()
             if viewModel.applications.isEmpty {
                 viewModel.refreshApplications()
             }
@@ -89,10 +90,14 @@ struct ContentView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
 
-                AppDetailHeader(app: app)
+                AppDetailHeader(app: app, localizer: localizer)
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 12)
+
+                AppInfoPanel(app: app, localizer: localizer)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 18)
 
                 Divider()
 
@@ -100,16 +105,34 @@ struct ContentView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
 
+                summaryBar
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+
                 if viewModel.isScanningItems {
                     Spacer()
-                    ProgressView(localizer.text("detail.scanning"))
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text(localizer.text("detail.scanning"))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                } else if viewModel.removableItems.count <= 1 {
+                    Spacer()
+                    ContentUnavailableView(
+                        localizer.text("emptyResults.title"),
+                        systemImage: "checkmark.shield",
+                        description: Text(localizer.text("emptyResults.description"))
+                    )
                     Spacer()
                 } else {
                     RemovableItemsTable(
                         items: viewModel.removableItems,
                         selectedIDs: viewModel.selectedItemIDs,
                         localizer: localizer,
-                        onToggle: viewModel.toggleSelection
+                        onToggle: viewModel.toggleSelection,
+                        onReveal: viewModel.revealInFinder
                     )
                 }
 
@@ -164,6 +187,34 @@ struct ContentView: View {
         }
     }
 
+    private var summaryBar: some View {
+        HStack(spacing: 10) {
+            SummaryTile(
+                title: localizer.text("summary.foundItems"),
+                value: "\(viewModel.removableItems.count)",
+                systemImage: "doc.on.doc"
+            )
+
+            SummaryTile(
+                title: localizer.text("summary.optionalItems"),
+                value: "\(viewModel.optionalItemCount)",
+                systemImage: "sparkle.magnifyingglass"
+            )
+
+            SummaryTile(
+                title: localizer.text("summary.totalSize"),
+                value: viewModel.totalRemovableSize.formattedFileSize,
+                systemImage: "externaldrive"
+            )
+
+            SummaryTile(
+                title: localizer.text("summary.selectedSize"),
+                value: viewModel.selectedSize.formattedFileSize,
+                systemImage: "checkmark.circle"
+            )
+        }
+    }
+
     private var bottomBar: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
@@ -200,7 +251,24 @@ struct ContentView: View {
                     viewModel.moveSelectedItemsToTrash()
                 }
             } message: {
-                Text(localizer.format("alert.message", viewModel.selectedItems.count))
+                Text(
+                    localizer.format(
+                        "alert.messageDetailed",
+                        viewModel.selectedItems.count,
+                        viewModel.selectedSize.formattedFileSize,
+                        viewModel.selectedHighRiskCount,
+                        viewModel.selectedMediumRiskCount
+                    )
+                )
+            }
+
+            if let entry = viewModel.latestHistoryEntry {
+                Button {
+                    viewModel.restoreLatestRemoval()
+                } label: {
+                    Label(localizer.format("button.restore", entry.movedItems.count), systemImage: "arrow.uturn.backward")
+                }
+                .help(localizer.text("help.restore"))
             }
         }
     }
@@ -238,6 +306,7 @@ private struct AppRow: View {
 
 private struct AppDetailHeader: View {
     let app: InstalledApp
+    let localizer: Localizer
 
     var body: some View {
         HStack(spacing: 16) {
@@ -273,11 +342,120 @@ private struct AppDetailHeader: View {
     }
 }
 
+private struct AppInfoPanel: View {
+    let app: InstalledApp
+    let localizer: Localizer
+
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: localizer.language.rawValue)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(localizer.text("info.title"), systemImage: "info.circle")
+                .font(.headline)
+
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 160), spacing: 10)
+            ], alignment: .leading, spacing: 10) {
+                InfoField(title: localizer.text("info.size"), value: app.size.formattedFileSize, systemImage: "externaldrive")
+                InfoField(title: localizer.text("info.version"), value: app.version ?? localizer.text("info.unknown"), systemImage: "number")
+                InfoField(title: localizer.text("info.bundle"), value: app.bundleIdentifier ?? localizer.text("info.unknown"), systemImage: "shippingbox")
+                InfoField(title: localizer.text("info.executable"), value: app.executableName ?? localizer.text("info.unknown"), systemImage: "terminal")
+                InfoField(title: localizer.text("info.category"), value: formattedCategory(app.category), systemImage: "tag")
+                InfoField(title: localizer.text("info.created"), value: formattedDate(app.creationDate), systemImage: "calendar.badge.plus")
+                InfoField(title: localizer.text("info.modified"), value: formattedDate(app.modificationDate), systemImage: "calendar.badge.clock")
+            }
+        }
+        .padding(14)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func formattedDate(_ date: Date?) -> String {
+        guard let date else { return localizer.text("info.unknown") }
+        return dateFormatter.string(from: date)
+    }
+
+    private func formattedCategory(_ category: String?) -> String {
+        guard let category, !category.isEmpty else { return localizer.text("info.unknown") }
+        return category
+            .replacingOccurrences(of: "public.app-category.", with: "")
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
+    }
+}
+
+private struct InfoField: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text(value)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(minHeight: 42, alignment: .topLeading)
+    }
+}
+
+private struct SummaryTile: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text(value)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(minWidth: 120, maxWidth: .infinity, minHeight: 58)
+        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 private struct RemovableItemsTable: View {
     let items: [RemovableItem]
     let selectedIDs: Set<RemovableItem.ID>
     let localizer: Localizer
     let onToggle: (RemovableItem) -> Void
+    let onReveal: (RemovableItem) -> Void
 
     var body: some View {
         Table(items) {
@@ -308,6 +486,11 @@ private struct RemovableItemsTable: View {
             }
             .width(120)
 
+            TableColumn(localizer.text("column.risk")) { item in
+                RiskBadge(risk: item.risk, localizer: localizer)
+            }
+            .width(92)
+
             TableColumn(localizer.text("column.size")) { item in
                 Text(item.size.formattedFileSize)
                     .foregroundStyle(.secondary)
@@ -320,6 +503,17 @@ private struct RemovableItemsTable: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+
+            TableColumn("") { item in
+                Button {
+                    onReveal(item)
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help(localizer.text("button.reveal"))
+            }
+            .width(44)
         }
     }
 
@@ -339,8 +533,55 @@ private struct RemovableItemsTable: View {
             "shippingbox"
         case .launchAgent:
             "bolt"
+        case .privilegedHelper:
+            "lock.shield"
         case .other:
             "doc"
+        }
+    }
+}
+
+private struct RiskBadge: View {
+    let risk: RemovableItem.Risk
+    let localizer: Localizer
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.caption)
+            .foregroundStyle(color)
+            .labelStyle(.titleAndIcon)
+    }
+
+    private var title: String {
+        switch risk {
+        case .low:
+            localizer.text("risk.low")
+        case .medium:
+            localizer.text("risk.medium")
+        case .high:
+            localizer.text("risk.high")
+        }
+    }
+
+    private var icon: String {
+        switch risk {
+        case .low:
+            "checkmark.circle"
+        case .medium:
+            "exclamationmark.triangle"
+        case .high:
+            "shield.lefthalf.filled"
+        }
+    }
+
+    private var color: Color {
+        switch risk {
+        case .low:
+            .green
+        case .medium:
+            .orange
+        case .high:
+            .red
         }
     }
 }

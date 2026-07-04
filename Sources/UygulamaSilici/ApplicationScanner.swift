@@ -35,7 +35,7 @@ final class ApplicationScanner {
             RemovableItem(
                 url: app.url,
                 kind: .application,
-                size: sizeOfItem(at: app.url),
+                size: sizeOfItem(at: app.url, skipsPackageDescendants: false),
                 isRequired: true
             )
         ]
@@ -68,6 +68,10 @@ final class ApplicationScanner {
             ?? url.deletingPathExtension().lastPathComponent
         let version = (info?["CFBundleShortVersionString"] as? String)
             ?? (info?["CFBundleVersion"] as? String)
+        let packageName = url.deletingPathExtension().lastPathComponent
+        let executableName = info?["CFBundleExecutable"] as? String
+        let category = info?["LSApplicationCategoryType"] as? String
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
         let isSystemApp = url.path.hasPrefix("/System/") || url.path.hasPrefix("/Applications/Utilities/")
 
         return InstalledApp(
@@ -76,6 +80,12 @@ final class ApplicationScanner {
             url: url,
             bundleIdentifier: bundle?.bundleIdentifier,
             version: version,
+            executableName: executableName,
+            packageName: packageName,
+            category: category,
+            size: sizeOfItem(at: url, skipsPackageDescendants: false),
+            creationDate: values?.creationDate,
+            modificationDate: values?.contentModificationDate,
             isSystemApp: isSystemApp
         )
     }
@@ -83,25 +93,46 @@ final class ApplicationScanner {
     private func searchTokens(for app: InstalledApp) -> Set<String> {
         var tokens = Set<String>()
         if let bundleIdentifier = app.bundleIdentifier, !bundleIdentifier.isEmpty {
-            tokens.insert(bundleIdentifier.lowercased())
+            insertToken(bundleIdentifier, into: &tokens)
+            bundleIdentifier
+                .split(separator: ".")
+                .map(String.init)
+                .filter { $0.count >= 3 && !["com", "org", "net", "app"].contains($0.lowercased()) }
+                .forEach { insertToken($0, into: &tokens) }
         }
 
-        let normalizedName = app.name
-            .replacingOccurrences(of: ".app", with: "")
-            .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        [
+            app.name,
+            app.packageName,
+            app.executableName
+        ]
+        .compactMap { $0 }
+        .forEach { insertToken($0, into: &tokens) }
 
-        if normalizedName.count >= 3 {
-            tokens.insert(normalizedName)
-            tokens.insert(normalizedName.replacingOccurrences(of: " ", with: ""))
-            tokens.insert(normalizedName.replacingOccurrences(of: " ", with: "-"))
+        if let bundleName = Bundle(url: app.url)?.object(forInfoDictionaryKey: "CFBundleName") as? String {
+            insertToken(bundleName, into: &tokens)
         }
 
         return tokens
     }
 
+    private func insertToken(_ value: String, into tokens: inout Set<String>) {
+        let normalized = value
+            .replacingOccurrences(of: ".app", with: "")
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard normalized.count >= 3 else { return }
+        tokens.insert(normalized)
+        tokens.insert(normalized.replacingOccurrences(of: " ", with: ""))
+        tokens.insert(normalized.replacingOccurrences(of: " ", with: "-"))
+        tokens.insert(normalized.replacingOccurrences(of: "_", with: "-"))
+    }
+
     private func searchableLocations() -> [(url: URL, kind: RemovableItem.Kind)] {
         let library = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library", isDirectory: true)
+        let systemLibrary = URL(fileURLWithPath: "/Library", isDirectory: true)
+
         return [
             (library.appendingPathComponent("Application Support", isDirectory: true), .support),
             (library.appendingPathComponent("Caches", isDirectory: true), .cache),
@@ -111,7 +142,18 @@ final class ApplicationScanner {
             (library.appendingPathComponent("Group Containers", isDirectory: true), .container),
             (library.appendingPathComponent("Saved Application State", isDirectory: true), .other),
             (library.appendingPathComponent("HTTPStorages", isDirectory: true), .cache),
-            (library.appendingPathComponent("LaunchAgents", isDirectory: true), .launchAgent)
+            (library.appendingPathComponent("LaunchAgents", isDirectory: true), .launchAgent),
+            (library.appendingPathComponent("Application Scripts", isDirectory: true), .support),
+            (library.appendingPathComponent("WebKit", isDirectory: true), .cache),
+            (library.appendingPathComponent("Cookies", isDirectory: true), .cache),
+            (library.appendingPathComponent("Preferences/ByHost", isDirectory: true), .preferences),
+            (systemLibrary.appendingPathComponent("Application Support", isDirectory: true), .support),
+            (systemLibrary.appendingPathComponent("Caches", isDirectory: true), .cache),
+            (systemLibrary.appendingPathComponent("Preferences", isDirectory: true), .preferences),
+            (systemLibrary.appendingPathComponent("Logs", isDirectory: true), .logs),
+            (systemLibrary.appendingPathComponent("LaunchAgents", isDirectory: true), .launchAgent),
+            (systemLibrary.appendingPathComponent("LaunchDaemons", isDirectory: true), .launchAgent),
+            (systemLibrary.appendingPathComponent("PrivilegedHelperTools", isDirectory: true), .privilegedHelper)
         ]
     }
 
@@ -122,7 +164,7 @@ final class ApplicationScanner {
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        return children.compactMap { child in
+        let directMatches: [RemovableItem] = children.compactMap { child in
             let candidate = child.lastPathComponent.lowercased()
             let matches = tokens.contains { token in
                 candidate == token ||
@@ -138,13 +180,60 @@ final class ApplicationScanner {
                 isRequired: false
             )
         }
+
+        let nestedMatches = nestedMatchingChildren(in: folder, kind: kind, tokens: tokens, directChildren: children)
+        return directMatches + nestedMatches
     }
 
-    private func sizeOfItem(at url: URL) -> Int64 {
+    private func nestedMatchingChildren(
+        in folder: URL,
+        kind: RemovableItem.Kind,
+        tokens: Set<String>,
+        directChildren: [URL]
+    ) -> [RemovableItem] {
+        let containers = directChildren.filter { child in
+            let name = child.lastPathComponent.lowercased()
+            return name == "com.apple.sharedfilelist" ||
+                name == "byhost" ||
+                name == "saved application state"
+        }
+
+        return containers.flatMap { container in
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: container,
+                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .totalFileAllocatedSizeKey],
+                options: [.skipsHiddenFiles]
+            ) else { return [RemovableItem]() }
+
+            return children.compactMap { child in
+                let candidate = child.lastPathComponent.lowercased()
+                let matches = tokens.contains { token in
+                    candidate == token ||
+                    candidate.contains(token) ||
+                    token.contains(candidate) && candidate.count >= 4
+                }
+
+                guard matches else { return nil }
+                return RemovableItem(
+                    url: child,
+                    kind: kind,
+                    size: sizeOfItem(at: child),
+                    isRequired: false
+                )
+            }
+        }
+    }
+
+    private func sizeOfItem(at url: URL, skipsPackageDescendants: Bool = true) -> Int64 {
+        var options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles]
+        if skipsPackageDescendants {
+            options.insert(.skipsPackageDescendants)
+        }
+
         guard let enumerator = fileManager.enumerator(
             at: url,
             includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            options: options
         ) else {
             return fileSize(at: url)
         }

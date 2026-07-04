@@ -7,6 +7,12 @@ struct InstalledApp: Identifiable, Hashable {
     let url: URL
     let bundleIdentifier: String?
     let version: String?
+    let executableName: String?
+    let packageName: String
+    let category: String?
+    let size: Int64
+    let creationDate: Date?
+    let modificationDate: Date?
     let isSystemApp: Bool
 
     var icon: NSImage {
@@ -15,6 +21,12 @@ struct InstalledApp: Identifiable, Hashable {
 }
 
 struct RemovableItem: Identifiable, Hashable {
+    enum Risk: String, Codable {
+        case low
+        case medium
+        case high
+    }
+
     enum Kind: String {
         case application = "Uygulama"
         case support = "Destek dosyası"
@@ -23,6 +35,7 @@ struct RemovableItem: Identifiable, Hashable {
         case logs = "Günlük"
         case container = "Kapsayıcı"
         case launchAgent = "Başlatma öğesi"
+        case privilegedHelper = "Yardımcı servis"
         case other = "Diğer"
     }
 
@@ -42,11 +55,43 @@ struct RemovableItem: Identifiable, Hashable {
     var path: String {
         url.path
     }
+
+    var risk: Risk {
+        if isRequired || kind == .application || kind == .privilegedHelper {
+            return .high
+        }
+
+        if path.hasPrefix("/Library/") || kind == .launchAgent || kind == .container || kind == .preferences {
+            return .medium
+        }
+
+        return .low
+    }
 }
 
 struct RemovalResult {
-    let movedItems: [URL]
+    let movedItems: [MovedTrashItem]
     let failedItems: [(URL, String)]
+}
+
+struct MovedTrashItem: Codable, Hashable, Identifiable {
+    var id: String { originalPath }
+    let originalPath: String
+    let trashedPath: String
+    let displayName: String
+    let kind: String
+    let size: Int64
+}
+
+struct RemovalHistoryEntry: Codable, Identifiable, Hashable {
+    let id: UUID
+    let appName: String
+    let date: Date
+    let movedItems: [MovedTrashItem]
+
+    var totalSize: Int64 {
+        movedItems.reduce(0) { $0 + $1.size }
+    }
 }
 
 extension Int64 {

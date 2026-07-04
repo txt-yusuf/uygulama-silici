@@ -17,6 +17,20 @@ Uygulama Silici, macOS icin gelistirilmis sade ve kullanimi kolay bir uygulama k
 - Finder'dan cift tikla acilabilen `.app` paketi uretilebilir.
 - Modern macOS tarzinda ozel uygulama ikonu icerir.
 
+## Ekran Goruntuleri
+
+Ekran goruntulerini `docs/screenshots` klasorune ekledikten sonra GitHub bu bolumde otomatik olarak gosterir.
+
+```markdown
+![Uygulama Silici ana ekran](docs/screenshots/main-window.png)
+```
+
+Ornek dosya yolu:
+
+```text
+docs/screenshots/main-window.png
+```
+
 ## Taranan Konumlar
 
 Uygulama, secilen uygulamayla iliskili dosyalari kullanici kutuphanesindeki yaygin konumlarda arar:
@@ -88,6 +102,24 @@ Uygulama kaldirma islemlerinde temkinli davranir:
 - Ogeleri Cop Sepeti'ne tasir.
 - Sistem uygulamalarini ve yardimci uygulamalari yanlislikla kaldirmayi engeller.
 - Bulunan kalinti dosyalarini kullaniciya gosterir ve secim hakki verir.
+
+## Gizlilik
+
+Uygulama Silici veri toplamaz, internet baglantisi kullanmaz ve herhangi bir sunucuya bilgi gondermez. Uygulama listesi, dosya tarama sonuclari ve kaldirma gecmisi yalnizca kullanicinin Mac'i uzerinde yerel olarak islenir.
+
+Kaldirma gecmisi, geri alma ozelligi icin su yerel dosyada tutulur:
+
+```text
+~/Library/Application Support/UygulamaSilici/removal-history.json
+```
+
+## Bilinen Sinirlamalar
+
+- Uygulama su an Apple Developer hesabi ile imzalanmamis ve notarize edilmemistir. Bu nedenle macOS ilk acilista guvenlik uyarisi gosterebilir.
+- Ilk acilista uygulamaya sag tiklayip `Open / Ac` secmek gerekebilir.
+- Bazi sistem geneli dosyalari Cop Sepeti'ne tasimak icin ek izin gerekebilir.
+- Uygulama dosyalari kalici olarak silmez; secili ogeleri macOS Cop Sepeti'ne tasir.
+- Kalinti tarama eslesmeleri uygulama adi, bundle identifier ve yaygin destek dosyasi konumlarina gore yapilir; her uygulama icin tum kalintilari garanti etmeyebilir.
 
 ## Lisans
 
