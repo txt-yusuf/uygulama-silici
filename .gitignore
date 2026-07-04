@@ -4,3 +4,4 @@ dist/
 BundleResources/AppIcon.iconset/
 *.xcuserdata/
 DerivedData/
+site/
